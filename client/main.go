@@ -74,16 +74,6 @@ func stage2(conn net.Conn) {
 		return
 	}
 
-	/*
-		conf := &tls.Config{
-			InsecureSkipVerify: true,
-			ServerName:         "stats-server.okd.mitre.org",
-		}
-		tConn, err := tls.Dial("tcp", "stats-server.okd.mitre.org:443", conf)
-		if err != nil {
-			panic(err)
-		}
-	*/
 	tConn, err := net.Dial("tcp", target)
 	if err != nil {
 		panic(err)

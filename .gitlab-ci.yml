@@ -8,9 +8,9 @@ build:
     CGO_ENABLED: 0
   script:
     - cd client
-    - go build -o tunnel-client-linux-amd64
-    - GOOS=darwin GOARCH=amd64 go build -o tunnel-client-darwin-amd64
-    - GOOS=windows GOARCH=amd64 go build -o tunnel-client-amd64.exe
+    - go build -ldflags "-X main.defaultServer=$DEFAULT_SERVER" -o tunnel-client-linux-amd64
+    - GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.defaultServer=$DEFAULT_SERVER" -o tunnel-client-darwin-amd64
+    - GOOS=windows GOARCH=amd64 go build -ldflags "-X main.defaultServer=$DEFAULT_SERVER" -o tunnel-client-amd64.exe
   artifacts:
     paths:
       - client/tunnel-client-linux-amd64
