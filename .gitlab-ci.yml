@@ -1,0 +1,20 @@
+stages:
+  - build
+
+build:
+  stage: build
+  image: golang:1.13-stretch
+  variables:
+    CGO_ENABLED: 0
+  script:
+    - cd client
+    - go build -o tunnel-client-linux-amd64
+    - GOOS=darwin GOARCH=amd64 go build -o tunnel-client-darwin-amd64
+    - GOOS=windows GOARCH=amd64 go build -o tunnel-client-amd64.exe
+  artifacts:
+    paths:
+      - client/tunnel-client-linux-amd64
+      - client/tunnel-client-darwin-amd64
+      - client/tunnel-client-amd64.exe
+  only:
+    - master
