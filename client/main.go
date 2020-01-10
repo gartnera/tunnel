@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"sync"
 
@@ -73,15 +76,22 @@ func stage2(conn net.Conn) {
 		conn.Close()
 		return
 	}
+	defer conn.Close()
 
 	tConn, err := net.Dial("tcp", target)
 	if err != nil {
-		panic(err)
+		// TODO: test if conn is http connection
+		s := fmt.Sprintf("target %s returned error %s", target, err)
+		r := http.Response{
+			StatusCode: 500,
+			Body:       ioutil.NopCloser(bytes.NewBufferString(s)),
+		}
+		r.Write(conn)
+		return
 	}
 
 	ctx := context.Background()
 	gNet.PipeConn(ctx, tConn, conn)
-	conn.Close()
 	tConn.Close()
 }
 
