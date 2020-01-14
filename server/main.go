@@ -162,13 +162,26 @@ func handleBackend(conn net.Conn, serverName string) {
 		return
 	}
 	cmd := ss[0]
+	secret := ss[1]
+	session, existingSessionFound := state.secretMap[secret]
+	if cmd == "backend-shutdown" {
+		defer conn.Close()
+		if !existingSessionFound {
+			fmt.Printf("invalid shutdown command: %s\n", cmd)
+			return
+		}
+		fmt.Printf("shutdown requested for %s\n", session.hostname)
+		state.Lock()
+		defer state.Unlock()
+		delete(state.hostnameMap, session.hostname)
+		delete(state.secretMap, session.secret)
+		return
+	}
 	if cmd != "backend-open" {
 		fmt.Printf("unknown cmd: %s\n", cmd)
 		conn.Close()
 		return
 	}
-	secret := ss[1]
-	session, existingSessionFound := state.secretMap[secret]
 	if existingSessionFound {
 		session.backendConnected(conn)
 		return

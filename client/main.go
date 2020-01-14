@@ -11,7 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"sync"
+	"os/signal"
 
 	"github.com/jamiealquiza/envy"
 	"github.com/myesui/uuid"
@@ -26,8 +26,6 @@ var hostname *string
 var target string
 
 func stage1(print bool) net.Conn {
-	log.SetFlags(log.Lshortfile)
-
 	conf := &tls.Config{
 		ServerName: *server,
 	}
@@ -95,6 +93,22 @@ func stage2(conn net.Conn) {
 	tConn.Close()
 }
 
+func shutdown() {
+	conf := &tls.Config{
+		ServerName: *server,
+	}
+
+	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", *server), conf)
+	if err != nil {
+		panic(err)
+	}
+	msg := fmt.Sprintf("backend-shutdown:%s:%s", *token, *hostname)
+	_, err = conn.Write([]byte(msg))
+	if err != nil {
+		panic(err)
+	}
+}
+
 func main() {
 	log.SetFlags(log.Lshortfile)
 
@@ -120,7 +134,9 @@ func main() {
 		go both()
 	}
 
-	lock := sync.Mutex{}
-	lock.Lock()
-	lock.Lock()
+	signalChannel := make(chan os.Signal, 1)
+	signal.Notify(signalChannel, os.Interrupt)
+	<-signalChannel
+	shutdown()
+
 }
