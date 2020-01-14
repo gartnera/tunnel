@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
+	"time"
 
 	"github.com/jamiealquiza/envy"
 	"github.com/myesui/uuid"
@@ -25,15 +27,26 @@ var server *string
 var hostname *string
 var target string
 
+var connectLock sync.Mutex
+
 func stage1(print bool) net.Conn {
 	conf := &tls.Config{
 		ServerName: *server,
 	}
-
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", *server), conf)
-	if err != nil {
-		panic(err)
+	var err error
+	var conn net.Conn
+	backoff := time.Second * 10
+	connectLock.Lock()
+	for {
+		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:443", *server), conf)
+		if err == nil {
+			break
+		}
+		fmt.Printf("error while connecting to server: %s\n", err)
+		time.Sleep(backoff)
+		backoff = backoff + (time.Second * 10)
 	}
+	connectLock.Unlock()
 	msg := fmt.Sprintf("backend-open:%s:%s", *token, *hostname)
 	n, err := conn.Write([]byte(msg))
 	if err != nil {
