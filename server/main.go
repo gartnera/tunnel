@@ -30,11 +30,20 @@ var state = struct {
 // recursively call self until we get a unique name
 func getHostname() string {
 	res := fmt.Sprintf("%s-%s-%s.%s", fake.Word(), fake.Word(), fake.Word(), basename)
-	_, ok := state.hostnameMap[res]
-	if ok {
+	_, exists := state.hostnameMap[res]
+	_, wildcardExists := getWildcardHostname(res)
+	if exists || wildcardExists {
 		return getHostname()
 	}
 	return res
+}
+
+func getWildcardHostname(serverName string) (string, bool) {
+	namePrefix := strings.Split(serverName, "-")[0]
+	wildcardHostname := fmt.Sprintf("%s-*.%s", namePrefix, basename)
+	fmt.Println(wildcardHostname)
+	_, exists := state.hostnameMap[wildcardHostname]
+	return wildcardHostname, exists
 }
 
 type ProxySession struct {
@@ -196,8 +205,10 @@ func handleBackend(conn net.Conn, serverName string) {
 		return
 	}
 	// test hostname exists (secret mismatch)
-	_, ok := state.hostnameMap[hostname]
-	if ok {
+	_, exists := state.hostnameMap[hostname]
+	// test wildcard exists
+	_, wildcardExists := getWildcardHostname(hostname)
+	if exists || wildcardExists {
 		fmt.Printf("hostname (%s) already exists\n", hostname)
 		conn.Close()
 		return
@@ -210,6 +221,12 @@ func handleBackend(conn net.Conn, serverName string) {
 
 func handleFrontend(conn net.Conn, serverName string) {
 	session, ok := state.hostnameMap[serverName]
+
+	// look for wildcard match in hostnameMap
+	wildcardHostname, wildcardExists := getWildcardHostname(serverName)
+	if !ok && wildcardExists {
+		session, ok = state.hostnameMap[wildcardHostname]
+	}
 	if !ok {
 		conn.Close()
 		return
