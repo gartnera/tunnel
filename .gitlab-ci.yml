@@ -3,7 +3,7 @@ stages:
 
 build:
   stage: build
-  image: golang:1.13-stretch
+  image: golang:1.18-stretch
   variables:
     CGO_ENABLED: 0
   script:

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -24,6 +25,7 @@ var defaultServer string
 
 var token *string
 var server *string
+var serverPort *string
 var hostname *string
 var target string
 
@@ -38,7 +40,7 @@ func stage1(print bool) net.Conn {
 	backoff := time.Second * 10
 	connectLock.Lock()
 	for {
-		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:443", *server), conf)
+		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:%s", *server, *serverPort), conf)
 		if err == nil {
 			break
 		}
@@ -57,6 +59,9 @@ func stage1(print bool) net.Conn {
 
 	n, err = conn.Read(buf)
 	if err != nil {
+		if err == io.EOF {
+			return nil
+		}
 		panic(err)
 	}
 	res := string(buf[:n])
@@ -111,7 +116,7 @@ func shutdown() {
 		ServerName: *server,
 	}
 
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", *server), conf)
+	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%s", *server, *serverPort), conf)
 	if err != nil {
 		panic(err)
 	}
@@ -127,6 +132,7 @@ func main() {
 
 	token = flag.String("token", uuid.NewV4().String(), "Secret token")
 	server = flag.String("server", defaultServer, "Tunnel server")
+	serverPort = flag.String("server-port", "443", "Port to connect to the tunnel server")
 	hostnameHelp := fmt.Sprintf("Hostname to request (test.%s)", defaultServer)
 	hostname = flag.String("hostname", "", hostnameHelp)
 
@@ -139,6 +145,10 @@ func main() {
 		os.Exit(1)
 	}
 	target = flag.Arg(0)
+
+	// we now use the control subdomain rather than the basename of the server
+	controlName := "control." + *server
+	server = &controlName
 
 	conn := stage1(true)
 	go stage2(conn)

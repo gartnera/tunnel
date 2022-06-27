@@ -10,11 +10,13 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/foomo/simplecert"
 	"github.com/icrowley/fake"
 	gNet "gitlab.com/gartnera/golib/net"
 )
 
 var basename string
+var controlName string
 var port string
 
 var state = struct {
@@ -117,24 +119,45 @@ func main() {
 	if !ok {
 		panic("TUNNEL_BASENAME not defined")
 	}
+	controlName = "control." + basename
 	port, ok = os.LookupEnv("TUNNEL_PORT")
 	if !ok {
 		panic("TUNNEL_PORT not defined")
 	}
 
-	cer, err := tls.LoadX509KeyPair("server.crt", "server.key")
-	if err != nil {
-		panic(err)
+	sCfg := simplecert.Default
+	sCfg.Domains = []string{fmt.Sprintf("*.%s", basename)}
+	sCfg.CacheDir = os.Getenv("SIMPLECERT_CACHE_DIR")
+	sCfg.SSLEmail = os.Getenv("SIMPLECERT_SSL_EMAIL")
+	sCfg.DNSProvider = os.Getenv("SIMPLECERT_DNS_PROVIDER")
+	// simply restart server when certificate is renewed. rely on systemd to restart
+	sCfg.DidRenewCertificate = func() {
+		os.Exit(2)
+	}
+	if os.Getenv("SIMPLECERT_USE_PUBLIC_DNS") != "" {
+		sCfg.DNSServers = []string{"1.1.1.1"}
 	}
 
 	var serverName string
 	config := &tls.Config{
-		Certificates: []tls.Certificate{cer},
 		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
 			serverName = info.ServerName
 			return nil, nil
 		},
 	}
+	cer, err := tls.LoadX509KeyPair("server.crt", "server.key")
+	if err == nil {
+		config.Certificates = []tls.Certificate{cer}
+	} else if sCfg.DNSProvider != "" {
+		certReloader, err := simplecert.Init(sCfg, nil)
+		if err != nil {
+			panic(err)
+		}
+		config.GetCertificate = certReloader.GetCertificateFunc()
+	} else {
+		panic(fmt.Errorf("could not parse cert or initiate simplecert: %w", err))
+	}
+
 	laddr := ":" + port
 	ln, err := tls.Listen("tcp", laddr, config)
 	if err != nil {
@@ -142,6 +165,7 @@ func main() {
 	}
 	defer ln.Close()
 
+	ctx := context.Background()
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -151,7 +175,7 @@ func main() {
 		// the tls connection isn't initialized until one side reads or writes
 		// we need to read immediately to get the ServerName before goroutine
 		conn.Read(nil)
-		go handleConnection(conn, serverName)
+		go handleConnection(ctx, conn, serverName)
 	}
 }
 
@@ -204,6 +228,11 @@ func handleBackend(conn net.Conn, serverName string) {
 		conn.Close()
 		return
 	}
+	if strings.HasPrefix(hostname, "control.") {
+		fmt.Printf("ignoring request for control\n")
+		conn.Close()
+		return
+	}
 	// test hostname exists (secret mismatch)
 	_, exists := state.hostnameMap[hostname]
 	// test wildcard exists
@@ -219,7 +248,7 @@ func handleBackend(conn net.Conn, serverName string) {
 	session.backendConnected(conn)
 }
 
-func handleFrontend(conn net.Conn, serverName string) {
+func handleFrontend(ctx context.Context, conn net.Conn, serverName string) {
 	session, ok := state.hostnameMap[serverName]
 
 	// look for wildcard match in hostnameMap
@@ -237,17 +266,16 @@ func handleFrontend(conn net.Conn, serverName string) {
 		return
 	}
 
-	ctx := context.Background()
 	gNet.PipeConn(ctx, backend, conn)
 	backend.Close()
 	conn.Close()
 	session.backendDisconnected()
 }
 
-func handleConnection(conn net.Conn, serverName string) {
-	if serverName == basename {
+func handleConnection(ctx context.Context, conn net.Conn, serverName string) {
+	if serverName == controlName {
 		handleBackend(conn, serverName)
 		return
 	}
-	handleFrontend(conn, serverName)
+	handleFrontend(ctx, conn, serverName)
 }
