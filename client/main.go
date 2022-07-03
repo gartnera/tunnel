@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,8 @@ var token *string
 var server *string
 var serverPort *string
 var hostname *string
+var useTLS bool
+var tlsSkipVerify bool
 var target string
 
 var connectLock sync.Mutex
@@ -94,7 +97,16 @@ func stage2(conn net.Conn) {
 	}
 	defer conn.Close()
 
-	tConn, err := net.Dial("tcp", target)
+	var tConn net.Conn
+	if useTLS {
+		conf := &tls.Config{
+			ServerName:         strings.Split(target, ":")[0],
+			InsecureSkipVerify: tlsSkipVerify,
+		}
+		tConn, err = tls.Dial("tcp", target, conf)
+	} else {
+		tConn, err = net.Dial("tcp", target)
+	}
 	if err != nil {
 		// TODO: test if conn is http connection
 		s := fmt.Sprintf("target %s returned error %s", target, err)
@@ -135,6 +147,8 @@ func main() {
 	serverPort = flag.String("server-port", "443", "Port to connect to the tunnel server")
 	hostnameHelp := fmt.Sprintf("Hostname to request (test.%s)", defaultServer)
 	hostname = flag.String("hostname", "", hostnameHelp)
+	flag.BoolVar(&useTLS, "use-tls", false, "use TLS when connecting to the local server")
+	flag.BoolVar(&tlsSkipVerify, "tls-skip-verify", false, "skip tls verification of the local server")
 
 	envy.Parse("TUNNEL")
 	flag.Parse()
