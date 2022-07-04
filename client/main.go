@@ -6,11 +6,11 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -31,10 +31,11 @@ var hostname *string
 var useTLS bool
 var tlsSkipVerify bool
 var target string
+var httpTargetHostHeader bool
 
 var connectLock sync.Mutex
 
-func stage1(print bool) net.Conn {
+func stage1(print bool) (net.Conn, error) {
 	conf := &tls.Config{
 		ServerName: *server,
 	}
@@ -53,30 +54,50 @@ func stage1(print bool) net.Conn {
 	}
 	connectLock.Unlock()
 	msg := fmt.Sprintf("backend-open:%s:%s", *token, *hostname)
-	n, err := conn.Write([]byte(msg))
+	_, err = conn.Write([]byte(msg))
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("unable to write to conn: %w", err)
 	}
 
 	buf := make([]byte, 512)
 
-	n, err = conn.Read(buf)
+	n, err := conn.Read(buf)
 	if err != nil {
-		if err == io.EOF {
-			return nil
-		}
-		panic(err)
+		return nil, fmt.Errorf("unable to read from conn: %w", err)
+
 	}
 	res := string(buf[:n])
 	if print {
 		fmt.Printf("URL: https://%s\n", res)
 	}
-	return conn
+	return conn, nil
 }
 
 func both() {
-	conn := stage1(false)
+	conn, err := stage1(false)
+	if err != nil {
+		fmt.Printf("unable to connect to server: %v\n", err)
+		go both()
+		return
+	}
 	stage2(conn)
+}
+
+func dialTLS(network, addr string) (net.Conn, error) {
+	host, port, _ := net.SplitHostPort(addr)
+	conf := &tls.Config{
+		ServerName:         host,
+		InsecureSkipVerify: tlsSkipVerify,
+	}
+	addrWithPort := addr
+	if port == "" {
+		addrWithPort += ":443"
+	}
+	conn, err := tls.Dial("tcp", addrWithPort, conf)
+	if err != nil {
+		return nil, fmt.Errorf("unable to dial tls: %w", err)
+	}
+	return conn, nil
 }
 
 func stage2(conn net.Conn) {
@@ -98,17 +119,22 @@ func stage2(conn net.Conn) {
 	defer conn.Close()
 
 	var tConn net.Conn
-	if useTLS {
-		conf := &tls.Config{
-			ServerName:         strings.Split(target, ":")[0],
-			InsecureSkipVerify: tlsSkipVerify,
+	if strings.HasPrefix(target, "http") {
+		lis := NewSingleConnListener(conn)
+		targetUrl, _ := url.Parse(target)
+		reverseProxy := NewSingleHostReverseProxy(targetUrl)
+		reverseProxy.Transport = &http.Transport{
+			DialTLS:         dialTLS,
+			IdleConnTimeout: time.Second * 10,
 		}
-		tConn, err = tls.Dial("tcp", target, conf)
+		_ = http.Serve(lis, reverseProxy)
+		return
+	} else if useTLS {
+		tConn, err = dialTLS("tcp", target)
 	} else {
 		tConn, err = net.Dial("tcp", target)
 	}
 	if err != nil {
-		// TODO: test if conn is http connection
 		s := fmt.Sprintf("target %s returned error %s", target, err)
 		r := http.Response{
 			StatusCode: 500,
@@ -149,6 +175,7 @@ func main() {
 	hostname = flag.String("hostname", "", hostnameHelp)
 	flag.BoolVar(&useTLS, "use-tls", false, "use TLS when connecting to the local server")
 	flag.BoolVar(&tlsSkipVerify, "tls-skip-verify", false, "skip tls verification of the local server")
+	flag.BoolVar(&httpTargetHostHeader, "http-target-host-header", false, "rewrite the host header to match the target host")
 
 	envy.Parse("TUNNEL")
 	flag.Parse()
@@ -164,10 +191,13 @@ func main() {
 	controlName := "control." + *server
 	server = &controlName
 
-	conn := stage1(true)
+	conn, err := stage1(true)
+	if err != nil {
+		panic(fmt.Errorf("unable to connect to server: %w", err))
+	}
 	go stage2(conn)
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
 		go both()
 	}
 

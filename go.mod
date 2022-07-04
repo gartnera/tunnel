@@ -13,6 +13,11 @@ require (
 )
 
 require (
+	go.uber.org/atomic v1.7.0 // indirect
+	go.uber.org/multierr v1.6.0 // indirect
+)
+
+require (
 	cloud.google.com/go v0.54.0 // indirect
 	github.com/Azure/azure-sdk-for-go v32.4.0+incompatible // indirect
 	github.com/Azure/go-autorest v14.2.0+incompatible // indirect
@@ -110,6 +115,7 @@ require (
 	github.com/vultr/govultr/v2 v2.16.0 // indirect
 	go.opencensus.io v0.22.3 // indirect
 	go.uber.org/ratelimit v0.0.0-20180316092928-c15da0234277 // indirect
+	go.uber.org/zap v1.21.0
 	golang.org/x/crypto v0.0.0-20210616213533-5ff15b29337e // indirect
 	golang.org/x/mod v0.4.2 // indirect
 	golang.org/x/net v0.0.0-20211112202133-69e39bad7dc2 // indirect
