@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -85,9 +86,13 @@ var rootCmd = &cobra.Command{
 			if !strings.Contains(server, ":") {
 				controlName += ":443"
 			}
+			serverHostOnly := server
+			if strings.Contains(server, ":") {
+				serverHostOnly, _, _ = net.SplitHostPort(server)
+			}
 			hostnameFqdn := hostname
 			if hostnameFqdn != "" && !strings.Contains(hostnameFqdn, ".") {
-				hostnameFqdn = strings.Join([]string{hostname, server}, ".")
+				hostnameFqdn = strings.Join([]string{hostname, serverHostOnly}, ".")
 			}
 
 			tunnel := client.NewTunnel(controlName, hostnameFqdn, token, useTLS, tlsSkipVerify, httpTargetHostHeader, target)

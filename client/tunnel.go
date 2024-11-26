@@ -101,7 +101,12 @@ func (t *Tunnel) stage1(print bool) (net.Conn, error) {
 	}
 	res := string(buf[:n])
 	if print {
-		fmt.Printf("URL: https://%s\n", res)
+		_, port, _ := net.SplitHostPort(t.server)
+		portPart := ""
+		if port != "443" {
+			portPart = fmt.Sprintf(":%s", port)
+		}
+		fmt.Printf("URL: https://%s%s\n", res, portPart)
 	}
 	return conn, nil
 }
