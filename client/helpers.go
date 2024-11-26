@@ -98,7 +98,7 @@ func joinURLPath(a, b *url.URL) (path, rawpath string) {
 	return a.Path + b.Path, apath + bpath
 }
 
-func NewSingleHostReverseProxy(target *url.URL) *httputil.ReverseProxy {
+func NewSingleHostReverseProxy(target *url.URL, httpTargetHostHeader bool) *httputil.ReverseProxy {
 	targetQuery := target.RawQuery
 	director := func(req *http.Request) {
 		req.URL.Scheme = target.Scheme

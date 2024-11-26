@@ -22,29 +22,41 @@ import (
 	gNet "gitlab.com/gartnera/golib/net"
 )
 
-var defaultServer string
+type Tunnel struct {
+	token                string
+	server               string
+	serverPort           string
+	hostname             string
+	useTLS               bool
+	tlsSkipVerify        bool
+	target               string
+	httpTargetHostHeader bool
+	connectLock          sync.Mutex
+}
 
-var token *string
-var server *string
-var serverPort *string
-var hostname *string
-var useTLS bool
-var tlsSkipVerify bool
-var target string
-var httpTargetHostHeader bool
+func NewTunnel(token, server, serverPort, hostname string, useTLS, tlsSkipVerify, httpTargetHostHeader bool, target string) *Tunnel {
+	return &Tunnel{
+		token:                token,
+		server:               server,
+		serverPort:           serverPort,
+		hostname:             hostname,
+		useTLS:               useTLS,
+		tlsSkipVerify:        tlsSkipVerify,
+		target:               target,
+		httpTargetHostHeader: httpTargetHostHeader,
+	}
+}
 
-var connectLock sync.Mutex
-
-func stage1(print bool) (net.Conn, error) {
+func (t *Tunnel) stage1(print bool) (net.Conn, error) {
 	conf := &tls.Config{
-		ServerName: *server,
+		ServerName: t.server,
 	}
 	var err error
 	var conn net.Conn
 	backoff := time.Second * 10
-	connectLock.Lock()
+	t.connectLock.Lock()
 	for {
-		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:%s", *server, *serverPort), conf)
+		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:%s", t.server, t.serverPort), conf)
 		if err == nil {
 			break
 		}
@@ -52,8 +64,8 @@ func stage1(print bool) (net.Conn, error) {
 		time.Sleep(backoff)
 		backoff = backoff + (time.Second * 10)
 	}
-	connectLock.Unlock()
-	msg := fmt.Sprintf("backend-open:%s:%s", *token, *hostname)
+	t.connectLock.Unlock()
+	msg := fmt.Sprintf("backend-open:%s:%s", t.token, t.hostname)
 	_, err = conn.Write([]byte(msg))
 	if err != nil {
 		return nil, fmt.Errorf("unable to write to conn: %w", err)
@@ -73,21 +85,21 @@ func stage1(print bool) (net.Conn, error) {
 	return conn, nil
 }
 
-func both() {
-	conn, err := stage1(false)
+func (t *Tunnel) both() {
+	conn, err := t.stage1(false)
 	if err != nil {
 		fmt.Printf("unable to connect to server: %v\n", err)
-		go both()
+		go t.both()
 		return
 	}
-	stage2(conn)
+	t.stage2(conn)
 }
 
-func dialTLS(network, addr string) (net.Conn, error) {
+func (t *Tunnel) dialTLS(network, addr string) (net.Conn, error) {
 	host, port, _ := net.SplitHostPort(addr)
 	conf := &tls.Config{
 		ServerName:         host,
-		InsecureSkipVerify: tlsSkipVerify,
+		InsecureSkipVerify: t.tlsSkipVerify,
 	}
 	addrWithPort := addr
 	if port == "" {
@@ -100,11 +112,11 @@ func dialTLS(network, addr string) (net.Conn, error) {
 	return conn, nil
 }
 
-func stage2(conn net.Conn) {
+func (t *Tunnel) stage2(conn net.Conn) {
 	buf := make([]byte, 100)
 	n, err := conn.Read(buf)
 
-	go both()
+	go t.both()
 
 	// conn closed by server or other
 	if err != nil {
@@ -119,23 +131,23 @@ func stage2(conn net.Conn) {
 	defer conn.Close()
 
 	var tConn net.Conn
-	if strings.HasPrefix(target, "http") {
+	if strings.HasPrefix(t.target, "http") {
 		lis := NewSingleConnListener(conn)
-		targetUrl, _ := url.Parse(target)
-		reverseProxy := NewSingleHostReverseProxy(targetUrl)
+		targetUrl, _ := url.Parse(t.target)
+		reverseProxy := NewSingleHostReverseProxy(targetUrl, t.httpTargetHostHeader)
 		reverseProxy.Transport = &http.Transport{
-			DialTLS:         dialTLS,
+			DialTLS:         t.dialTLS,
 			IdleConnTimeout: time.Second * 10,
 		}
 		_ = http.Serve(lis, reverseProxy)
 		return
-	} else if useTLS {
-		tConn, err = dialTLS("tcp", target)
+	} else if t.useTLS {
+		tConn, err = t.dialTLS("tcp", t.target)
 	} else {
-		tConn, err = net.Dial("tcp", target)
+		tConn, err = net.Dial("tcp", t.target)
 	}
 	if err != nil {
-		s := fmt.Sprintf("target %s returned error %s", target, err)
+		s := fmt.Sprintf("target %s returned error %s", t.target, err)
 		r := http.Response{
 			StatusCode: 500,
 			Body:       ioutil.NopCloser(bytes.NewBufferString(s)),
@@ -149,30 +161,37 @@ func stage2(conn net.Conn) {
 	tConn.Close()
 }
 
-func shutdown() {
+func (t *Tunnel) shutdown() {
 	conf := &tls.Config{
-		ServerName: *server,
+		ServerName: t.server,
 	}
 
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%s", *server, *serverPort), conf)
+	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%s", t.server, t.serverPort), conf)
 	if err != nil {
 		panic(err)
 	}
-	msg := fmt.Sprintf("backend-shutdown:%s:%s", *token, *hostname)
+	msg := fmt.Sprintf("backend-shutdown:%s:%s", t.token, t.hostname)
 	_, err = conn.Write([]byte(msg))
 	if err != nil {
 		panic(err)
 	}
 }
 
+var defaultServer string
+
 func main() {
 	log.SetFlags(log.Lshortfile)
 
-	token = flag.String("token", uuid.NewV4().String(), "Secret token")
-	server = flag.String("server", defaultServer, "Tunnel server")
-	serverPort = flag.String("server-port", "443", "Port to connect to the tunnel server")
+	token := flag.String("token", uuid.NewV4().String(), "Secret token")
+	server := flag.String("server", defaultServer, "Tunnel server")
+	serverPort := flag.String("server-port", "443", "Port to connect to the tunnel server")
 	hostnameHelp := fmt.Sprintf("Hostname to request (test.%s)", defaultServer)
-	hostname = flag.String("hostname", "", hostnameHelp)
+	hostname := flag.String("hostname", "", hostnameHelp)
+
+	var useTLS bool
+	var tlsSkipVerify bool
+	var httpTargetHostHeader bool
+
 	flag.BoolVar(&useTLS, "use-tls", false, "use TLS when connecting to the local server")
 	flag.BoolVar(&tlsSkipVerify, "tls-skip-verify", false, "skip tls verification of the local server")
 	flag.BoolVar(&httpTargetHostHeader, "http-target-host-header", false, "rewrite the host header to match the target host")
@@ -185,25 +204,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Example:", os.Args[0], "localhost:8888")
 		os.Exit(1)
 	}
-	target = flag.Arg(0)
+	target := flag.Arg(0)
 
 	// we now use the control subdomain rather than the basename of the server
 	controlName := "control." + *server
 	server = &controlName
 
-	conn, err := stage1(true)
+	tunnel := NewTunnel(*token, *server, *serverPort, *hostname, useTLS, tlsSkipVerify, httpTargetHostHeader, target)
+
+	conn, err := tunnel.stage1(true)
 	if err != nil {
 		panic(fmt.Errorf("unable to connect to server: %w", err))
 	}
-	go stage2(conn)
+	go tunnel.stage2(conn)
 
 	for i := 0; i < 20; i++ {
-		go both()
+		go tunnel.both()
 	}
 
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, os.Interrupt)
 	<-signalChannel
-	shutdown()
-
+	tunnel.shutdown()
 }
