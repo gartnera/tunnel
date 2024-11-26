@@ -85,7 +85,7 @@ var rootCmd = &cobra.Command{
 				controlName += ":443"
 			}
 			hostnameFqdn := hostname
-			if !strings.Contains(hostnameFqdn, ".") {
+			if hostnameFqdn != "" && !strings.Contains(hostnameFqdn, ".") {
 				hostnameFqdn = strings.Join([]string{hostname, server}, ".")
 			}
 
