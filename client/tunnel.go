@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -39,16 +39,17 @@ func NewTunnel(server, hostname, token string, useTLS, tlsSkipVerify, httpTarget
 	}
 }
 
-func (t *Tunnel) Start() {
+func (t *Tunnel) Start() error {
 	conn, err := t.stage1(true)
 	if err != nil {
-		panic(fmt.Errorf("unable to connect to server: %w", err))
+		return fmt.Errorf("unable to complete initial connection to server: %w", err)
 	}
 	go t.stage2(conn)
 
 	for i := 0; i < 20; i++ {
 		go t.both()
 	}
+	return nil
 }
 
 func (t *Tunnel) Shutdown() {
@@ -170,7 +171,7 @@ func (t *Tunnel) stage2(conn net.Conn) {
 		s := fmt.Sprintf("target %s returned error %s", t.target, err)
 		r := http.Response{
 			StatusCode: 500,
-			Body:       ioutil.NopCloser(bytes.NewBufferString(s)),
+			Body:       io.NopCloser(bytes.NewBufferString(s)),
 		}
 		r.Write(conn)
 		return

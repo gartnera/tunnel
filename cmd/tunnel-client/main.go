@@ -36,10 +36,11 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:     "tunnel <[http://]hostname:port>",
-	Short:   "Start a tunnel to a local server",
-	Example: "tunnel localhost:8888",
-	Args:    cobra.ExactArgs(1),
+	Use:          "tunnel <[http://]hostname:port>",
+	Short:        "Start a tunnel to a local server",
+	Example:      "tunnel localhost:8888",
+	SilenceUsage: true,
+	Args:         cobra.ExactArgs(1),
 	// use envy to parse TUNNEL_ vars into environment
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		envy.ParseCobra(cmd, envy.CobraConfig{
@@ -90,7 +91,10 @@ var rootCmd = &cobra.Command{
 			}
 
 			tunnel := client.NewTunnel(controlName, hostnameFqdn, token, useTLS, tlsSkipVerify, httpTargetHostHeader, target)
-			tunnel.Start()
+			err := tunnel.Start()
+			if err != nil {
+				return fmt.Errorf("start %s: %w", controlName, err)
+			}
 			tunnels = append(tunnels, tunnel)
 		}
 
@@ -107,7 +111,6 @@ var rootCmd = &cobra.Command{
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
 		os.Exit(1)
 	}
 }
