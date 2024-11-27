@@ -95,11 +95,12 @@ var rootCmd = &cobra.Command{
 				hostnameFqdn = strings.Join([]string{hostname, serverHostOnly}, ".")
 			}
 
-			tunnel := client.NewTunnel(controlName, hostnameFqdn, token, useTLS, tlsSkipVerify, httpTargetHostHeader, target)
+			tunnel := client.New(controlName, hostnameFqdn, token, useTLS, tlsSkipVerify, httpTargetHostHeader, target)
 			err := tunnel.Start()
 			if err != nil {
 				return fmt.Errorf("start %s: %w", controlName, err)
 			}
+			fmt.Printf("URL: %s\n", tunnel.IssuedAddrHTTPS())
 			tunnels = append(tunnels, tunnel)
 		}
 
