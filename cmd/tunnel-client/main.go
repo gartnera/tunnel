@@ -79,7 +79,7 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 
-		tunnels := []*client.Tunnel{}
+		tunnels := []*client.Client{}
 		for _, server := range servers {
 			// we now use the control subdomain rather than the basename of the server
 			controlName := fmt.Sprintf("control.%s", server)
@@ -95,7 +95,14 @@ var rootCmd = &cobra.Command{
 				hostnameFqdn = strings.Join([]string{hostname, serverHostOnly}, ".")
 			}
 
-			tunnel := client.New(controlName, hostnameFqdn, token, useTLS, tlsSkipVerify, httpTargetHostHeader, target)
+			tunnel := client.New(
+				controlName,
+				target,
+				client.WithHostname(hostname, token),
+				client.WithUseTLS(useTLS),
+				client.WithTLSSkipVerify(tlsSkipVerify),
+				client.WithHTTPTargetHostHeader(httpTargetHostHeader),
+			)
 			err := tunnel.Start()
 			if err != nil {
 				return fmt.Errorf("start %s: %w", controlName, err)
