@@ -16,6 +16,14 @@ import (
 	gNet "gitlab.com/gartnera/golib/net"
 )
 
+type TunnelOpt func(t *Tunnel)
+
+func WithControlTLSConfig(tlsConfig *tls.Config) TunnelOpt {
+	return func(t *Tunnel) {
+		t.controlTTLSconfig = tlsConfig
+	}
+}
+
 type Tunnel struct {
 	token                string
 	server               string
@@ -24,11 +32,14 @@ type Tunnel struct {
 	tlsSkipVerify        bool
 	target               string
 	httpTargetHostHeader bool
-	connectLock          sync.Mutex
+
+	controlTTLSconfig *tls.Config
+	issuedAddr        string
+	connectLock       sync.Mutex
 }
 
-func NewTunnel(server, hostname, token string, useTLS, tlsSkipVerify, httpTargetHostHeader bool, target string) *Tunnel {
-	return &Tunnel{
+func New(server, hostname, token string, useTLS, tlsSkipVerify, httpTargetHostHeader bool, target string, opts ...TunnelOpt) *Tunnel {
+	t := &Tunnel{
 		server:               server,
 		hostname:             hostname,
 		token:                token,
@@ -36,7 +47,16 @@ func NewTunnel(server, hostname, token string, useTLS, tlsSkipVerify, httpTarget
 		tlsSkipVerify:        tlsSkipVerify,
 		target:               target,
 		httpTargetHostHeader: httpTargetHostHeader,
+		controlTTLSconfig:    &tls.Config{},
 	}
+
+	for _, opt := range opts {
+		opt(t)
+	}
+	serverName, _, _ := net.SplitHostPort(t.server)
+	t.controlTTLSconfig.ServerName = serverName
+
+	return t
 }
 
 func (t *Tunnel) Start() error {
@@ -53,7 +73,7 @@ func (t *Tunnel) Start() error {
 }
 
 func (t *Tunnel) Shutdown() {
-	conn, err := tls.Dial("tcp", t.server, t.getControlTlsConfig())
+	conn, err := tls.Dial("tcp", t.server, t.controlTTLSconfig)
 	if err != nil {
 		panic(err)
 	}
@@ -64,20 +84,27 @@ func (t *Tunnel) Shutdown() {
 	}
 }
 
-func (t *Tunnel) getControlTlsConfig() *tls.Config {
-	serverName, _, _ := net.SplitHostPort(t.server)
-	return &tls.Config{
-		ServerName: serverName,
-	}
+// IssuedAddr gets the address issued by the server
+func (t *Tunnel) IssuedAddr() string {
+	return t.issuedAddr
 }
 
-func (t *Tunnel) stage1(print bool) (net.Conn, error) {
+// IssuedAddrHTTPS gets the address issued by the server with https prefix
+func (t *Tunnel) IssuedAddrHTTPS() string {
+	addr := t.issuedAddr
+	if strings.HasSuffix(addr, ":443") {
+		addr = strings.TrimSuffix(addr, ":443")
+	}
+	return fmt.Sprintf("https://%s", addr)
+}
+
+func (t *Tunnel) stage1(first bool) (net.Conn, error) {
 	var err error
 	var conn net.Conn
 	backoff := time.Second * 10
 	t.connectLock.Lock()
 	for {
-		conn, err = tls.Dial("tcp", t.server, t.getControlTlsConfig())
+		conn, err = tls.Dial("tcp", t.server, t.controlTTLSconfig)
 		if err == nil {
 			break
 		}
@@ -100,13 +127,12 @@ func (t *Tunnel) stage1(print bool) (net.Conn, error) {
 
 	}
 	res := string(buf[:n])
-	if print {
+	if first {
 		_, port, _ := net.SplitHostPort(t.server)
-		portPart := ""
-		if port != "443" {
-			portPart = fmt.Sprintf(":%s", port)
+		if port == "" {
+			port = "443"
 		}
-		fmt.Printf("URL: https://%s%s\n", res, portPart)
+		t.issuedAddr = fmt.Sprintf("%s:%s", res, port)
 	}
 	return conn, nil
 }

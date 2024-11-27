@@ -18,6 +18,8 @@ type Server struct {
 	controlName string
 	logger      *zap.Logger
 
+	addr net.Addr
+
 	sync.RWMutex
 	hostnameMap map[string]*proxySession
 	secretMap   map[string]*proxySession
@@ -44,6 +46,9 @@ func (s *Server) Start(laddr string, tlsConfig *tls.Config) error {
 		s.logger.Fatal("could not listen", zap.String("laddr", laddr), zap.Error(err))
 	}
 	defer ln.Close()
+	s.Lock()
+	s.addr = ln.Addr()
+	s.Unlock()
 
 	ctx := context.Background()
 	for {
@@ -61,6 +66,10 @@ func (s *Server) Start(laddr string, tlsConfig *tls.Config) error {
 		conn.Read(nil)
 		go s.handleConnection(ctx, conn, serverName)
 	}
+}
+
+func (s *Server) Addr() net.Addr {
+	return s.addr
 }
 
 // getHostname generates a three word unique subdomain
