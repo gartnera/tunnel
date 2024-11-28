@@ -21,6 +21,7 @@ import (
 )
 
 // generateCertificate generates a CA certificate, client certificate, and returns a tls.Config.
+// it can be used for both clients and servers
 func generateCertificate(cn string) (*tls.Config, error) {
 	// Generate CA private key
 	caPrivateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -108,11 +109,6 @@ func TestE2E(t *testing.T) {
 	controlAddr := fmt.Sprintf("control.localtest.me:%s", port)
 	client := client.New(
 		controlAddr,
-		"",
-		"",
-		false,
-		false,
-		false,
 		"localhost:1234",
 		client.WithControlTLSConfig(tlsConfig),
 	)
