@@ -37,6 +37,7 @@ func New(basename string, logger *zap.Logger) *Server {
 
 func (s *Server) Start(laddr string, tlsConfig *tls.Config) error {
 	var serverName string
+	tlsConfig = tlsConfig.Clone()
 	tlsConfig.GetConfigForClient = func(info *tls.ClientHelloInfo) (*tls.Config, error) {
 		serverName = info.ServerName
 		return nil, nil

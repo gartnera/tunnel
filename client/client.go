@@ -22,7 +22,7 @@ type ClientOpt func(c *Client)
 // to the control server
 func WithControlTLSConfig(tlsConfig *tls.Config) ClientOpt {
 	return func(c *Client) {
-		c.controlTTLSconfig = tlsConfig
+		c.controlTTLSconfig = tlsConfig.Clone()
 	}
 }
 
